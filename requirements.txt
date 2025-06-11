@@ -1,0 +1,4 @@
+google-genai
+dotenv
+spoonacular
+flask
