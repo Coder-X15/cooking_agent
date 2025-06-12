@@ -16,3 +16,6 @@ SPOONACULAR_KEY="<key>"
 2. `cd` into the repo and `pip install -r requirements.txt`
 3. `python app.py` to start the server
 4. Open a web browser and navigate to `http://localhost:5000/`.
+
+## TODO:
+1. Develop a Flask frontend for testers to interface with
