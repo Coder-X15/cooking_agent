@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for
 from agent.global_agent import *
+import markdown
 
 
 # first we need to create a child class out of the AIAgent class to enable proper functionality
@@ -7,78 +8,50 @@ class Agent(AIAgent):
 
     def __init__(self):
         super().__init__()
-        self.contextual_chat = [] # keeps the chat context
 
-    # we'll have to first override the handleFetchRecipe function with an implementation that keeps the context
-    # even after the redirect.
-
-    def handleFetchRecipe(self, query):
-        # changes the chat mode into a guide for the user while cooking
-        response = self.client.models.generate_content(
-            model=self.model,
-            contents=query,
-            config=types.GenerateContentConfig(tools=[self.fetch_recipe_tool]),
-        )
-
-        function_call_part = response.function_calls[0]
-        function_call_content = response.candidates[0].content
-        recipe = None
-
-        try:
-            # parse the function call to get the item name
-            item_name = function_call_part.args['item']
-
-            # get the recipe for the item
-            recipe = self.fetchRecipe(item_name)
-            function_response = {'result': recipe}
-        except:
-            # raise an exception
-            raise Exception("Failed to get the recipe for the item")
+    # we'll just have to overwrite the run function to run once and return a reply dialogue.
+    def run(self, user_input : str):
+        intent = self.getIntent(user_input)
+        if 'None' in intent.text:
+            return {'assistant':self.handleNoneIntent()}
+        else:
+            # the output comes as a text repr. of a JSON/Python dictionary
+            # we need to convert it first
+            output = intent.text
+            self.handleFetchRecipe(output)
+            return {'assistant':self.handleNoneIntent()}
         
-        working_prompt = '''Guide the user, step-by-step, through the recipe for the item. Do list the quantity when you list ingredients. Wait when the user gives signs for you to pause.
-        Once the whole recipe has been done or the user doesn't seems to have decided not to cook anything, return "Done".'''
 
-        user_prompt_content = types.Content(
-            role = 'user',
-            parts = [
-                types.Part.from_text(text = query)
-            ]
-        )
+# building the Flask app
+app = Flask(__name__)
+app.config['debug'] = True
 
-        function_response_part = types.Part.from_function_response(
-            name=function_call_part.name,
-            response= function_response,
-        )
-        function_response_content = types.Content(
-            role='tool', parts=[function_response_part]
-        )
+# creating the agent
+agent = Agent()
 
-        self.contextual_chat += [
-                user_prompt_content,
-                function_call_content,
-                function_response_content,
-            ]
+# conversation as a list
+conversation = []
+
+@app.route('/')
+def index():
+    return render_template('chatpage.html', messages = conversation)
+
+@app.route('/consume_message', methods=['POST', 'GET'])
+def chat():
+    if request.method == "POST":
+        user_input = request.form.get('user_message')
+        # add the user dialogue to the conversation history
+        conversation.append({'user':user_input})
         
-        if response != "Done":
+        # get the agent output
+        output = agent.run(user_input)
 
-            # generate the response
-            response = self.client.models.generate_content(
-                model=self.model,
-                contents=self.contextual_chat,
-                config=types.GenerateContentConfig(
-                    tools=[self.fetch_recipe_tool],
-                    system_instruction= working_prompt,
-                    temperature=0.7,
-                ),
-            )
+        #modify the output to HTML syntax
+        output['assistant'] = markdown.markdown(output['assistant'])
+        
+        conversation.append(output)
+        return redirect('/')
 
-            # add it to the contextual chat
-            self.contextual_chat.append(
-                types.Content(
-                    role = 'assistant',
-                    parts = [types.Part.from_text(text = response.text)]
-                )
-            )
 
-        return response.candidates[0].content
-    
+if __name__ == "__main__":
+    app.run(debug=True)

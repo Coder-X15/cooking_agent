@@ -2,3 +2,4 @@ google-genai
 dotenv
 spoonacular
 flask
+markdown

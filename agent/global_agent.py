@@ -24,6 +24,9 @@ class AIAgent:
         # - Branch 1: If the intent is to help the person cook or to simply fetch a recipe, call the agent with the tool.
         # - Branch 2: For a None intent, chat as usual
 
+        # context switch
+        self.is_contextual = False
+
         # Gemini chat client
         self.client = genai.Client(
             api_key=os.environ['GOOGLE_API_KEY'],
@@ -37,10 +40,11 @@ class AIAgent:
 
         # specific prompts
         self.intent_prompt = '''Identify the user intent (either to fetch a recipe, or a "None" intent). If the user intends to get a recipe,
-        print "Fetch the recipe for <name of the dish with every letter in lower-case and seperated by underscores>", otherwise print "None" '''
+        print "Fetch the recipe for <name of the dish with every letter in lower-case and seperated by underscores>", otherwise print "None". Note that every
+        dialogue is not an intent to fetch the recipe. Dialogues like exclamations (eg.: "Ah! Those sizzling bagels!") are to be considered as "None" intent. '''
 
-        self.none_prompt = '''Converse with the user almost like how a normal human user would. Be suggestive when it comes to ideas,
-        ask opinions subtly (like "Ain't that so?", "What do you think", etc.). Hide as much of your bot behaviour as you can.'''
+        self.none_prompt = ['''Converse with the user almost like how a normal human user would. Be suggestive when it comes to ideas,
+        ask opinions subtly (like "Ain't that so?", "What do you think", etc.). Hide as much of your bot behaviour as you can.''']
 
         # recipe fetcher function call declaration
         self.fetch_recipe_tool_decl = types.FunctionDeclaration(
@@ -84,7 +88,9 @@ class AIAgent:
                                                 )
     
     def handleFetchRecipe(self, query : str):
-        # changes the chat mode into a guide for the user while cooking
+        # fetches the recipe and changes the chat mode into a cooking guide
+
+        # fetch a function call part
         response = self.client.models.generate_content(
             model=self.model,
             contents=query,
@@ -94,9 +100,9 @@ class AIAgent:
         function_call_part = response.function_calls[0]
         function_call_content = response.candidates[0].content
         recipe = None
-        contextual_chat = []
 
         try:
+            print("Getting the recipe...") # debug line 1
             # parse the function call to get the item name
             item_name = function_call_part.args['item']
 
@@ -107,9 +113,20 @@ class AIAgent:
             # raise an exception
             raise Exception("Failed to get the recipe for the item")
         
-        working_prompt = '''Guide the user, step-by-step, through the recipe for the item. Do list the quantity when you list ingredients. Wait when the user gives signs for you to pause.
-        Once the whole recipe has been done or the user doesn't seems to have decided not to cook anything, return "Done".'''
+        if not self.is_contextual:
 
+            # if the chat mode hasn't been switched to contextual, do it
+            self.is_contextual = True
+
+            # define a working prompt
+            working_prompt = '''Guide the user, step-by-step, through the resultant recipe for the item. Do list the quantity 
+            when you list ingredients. Wait when the user gives signs for you to pause. Once the whole recipe has been 
+            done or the user doesn't seems to have decided not to cook anything, return "Done".'''
+
+            # add the working prompt to the none_prompt variable to be called during the handling of the None prompt
+            self.none_prompt.append(working_prompt)
+
+        # define the conversational objects to be added to the current chat history
         user_prompt_content = types.Content(
             role = 'user',
             parts = [
@@ -121,63 +138,16 @@ class AIAgent:
             name=function_call_part.name,
             response= function_response,
         )
+
         function_response_content = types.Content(
             role='tool', parts=[function_response_part]
         )
 
-        contextual_chat += [
+        self.system_memory += [
                 user_prompt_content,
                 function_call_content,
                 function_response_content,
-            ]
-        
-        while response != "Done":
-
-            # generate the response
-            response = self.client.models.generate_content(
-                model=self.model,
-                contents=contextual_chat,
-                config=types.GenerateContentConfig(
-                    tools=[self.fetch_recipe_tool],
-                    system_instruction= working_prompt,
-                    temperature=0.7,
-                ),
-            )
-
-            # yield it if the reply is not "Done"
-            print(f"Assistant:{response.text if "Done" not in response.text else "Fine..."}")
-
-            # add it to the contextual chat
-            contextual_chat.append(
-                types.Content(
-                    role = 'assistant',
-                    parts = [types.Part.from_text(text = response.text)]
-                )
-            )
-
-            # reset variable
-            response = response
-            
-
-            if response != "Done":
-                # get user input
-                query = input("User:")
-
-                # create user prompt content and push it to the contextual chat
-                user_prompt_content = types.Content(
-                    role = 'user',
-                    parts = [
-                        types.Part.from_text(text = query)
-                    ]
-                )
-
-                contextual_chat.append(
-                    user_prompt_content
-                )
-
-        return contextual_chat
-
-        
+            ] 
     
     def fetchRecipe(self, item: str):
         # gets the required recipe from Spoonacular API
@@ -193,10 +163,44 @@ class AIAgent:
         # Process:
         # 1. Get the response from the model, save it as the model's response
         # 2. Return the response as a string
-        response = self.client.models.generate_content(
-            model = self.model,
-            contents = self.system_memory[-1].parts[0],
-        )
+        if self.is_contextual:
+            print("Guiding the user through the recipe for the item")
+            # if the chat mode is contextual, return the response as is
+            response = self.client.models.generate_content(
+                model = self.model,
+                contents = self.system_memory,
+                config = types.GenerateContentConfig(
+                    system_instruction = self.none_prompt[-1]
+                )
+            )
+            # if the response is "Done", we quit the contextual response and get a normal response
+            if "Done" in response.text:
+
+                # pop the last prompt (usually, the one on guiding the user through the recipe)
+                self.none_prompt.pop()
+
+                # switch off the contextual mode
+                self.is_contextual = False
+
+                # get a normal response from the model
+                response = self.client.models.generate_content(
+                    model = self.model,
+                    contents = self.system_memory,
+                    config = types.GenerateContentConfig(
+                        system_instruction = self.none_prompt[-1]
+                    )
+                )
+        else:
+            print("Normal chat")
+            # go for a usual conversation
+            response = self.client.models.generate_content(
+                model = self.model,
+                contents = self.system_memory,
+                config = types.GenerateContentConfig(
+                    system_instruction = self.none_prompt[-1]
+                )
+            )
+
         self.system_memory.append(
             types.Content(
                 role = 'assistant',
@@ -224,8 +228,12 @@ class AIAgent:
                 # the output comes as a text repr. of a JSON/Python dictionary
                 # we need to convert it first
                 output = intent.text
-                self.system_memory += self.handleFetchRecipe(output)
+                self.handleFetchRecipe(output)
+                print(self.handleNoneIntent())
+
 
 if __name__ == "__main__":
-    assistant = AIAgent()
-    assistant.run()
+    # create an instance of the agent
+    agent = AIAgent()
+    # run the agent
+    agent.run()
