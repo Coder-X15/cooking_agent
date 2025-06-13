@@ -21,6 +21,7 @@ Have your Gemini developer API key and Spoonacular API key ready in a file named
 GOOGLE_API_KEY="<key>"
 SPOONACULAR_KEY="<key>"
 ```
+Save it in the `agent` folder of the repo once cloned.
 1. Clone this repo
 2. `cd` into the repo and `pip install -r requirements.txt`
 3. `python app.py` or `flask run` to start the server
