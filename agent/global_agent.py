@@ -119,7 +119,7 @@ class AIAgent:
             self.is_contextual = True
 
             # define a working prompt
-            working_prompt = '''Guide the user, step-by-step, through the resultant recipe for the item. Do list the quantity 
+            working_prompt = '''Guide the user, step-by-step, through the recipe. Do list the quantity 
             when you list ingredients. Wait when the user gives signs for you to pause. Once the whole recipe has been 
             done or the user doesn't seems to have decided not to cook anything, return "Done".'''
 
@@ -147,7 +147,19 @@ class AIAgent:
                 user_prompt_content,
                 function_call_content,
                 function_response_content,
-            ] 
+            ]
+        
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents= self.system_memory,
+            config=types.GenerateContentConfig(
+                tools=[self.fetch_recipe_tool],
+                system_instruction= self.none_prompt[-1]
+            ),
+        )
+
+        return response.text
+        
     
     def fetchRecipe(self, item: str):
         # gets the required recipe from Spoonacular API
@@ -155,7 +167,10 @@ class AIAgent:
             query = item,
             number = 1 # default for now
         )
-
+        recipe_dict = eval(recipe.text)
+        recipe = self.sp_api.get_recipe_information(
+            id = recipe_dict['results'][0]['id']
+        )
         return recipe.text
     
     def handleNoneIntent(self) -> str:
@@ -210,7 +225,7 @@ class AIAgent:
             )
         )
 
-        return response.candidates[0].content.parts[0].text.strip()
+        return response.text
 
     def run(self):
         # run the system
@@ -228,8 +243,7 @@ class AIAgent:
                 # the output comes as a text repr. of a JSON/Python dictionary
                 # we need to convert it first
                 output = intent.text
-                self.handleFetchRecipe(output)
-                print(self.handleNoneIntent())
+                print(self.handleFetchRecipe(output))
 
 
 if __name__ == "__main__":

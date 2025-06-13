@@ -18,8 +18,7 @@ class Agent(AIAgent):
             # the output comes as a text repr. of a JSON/Python dictionary
             # we need to convert it first
             output = intent.text
-            self.handleFetchRecipe(output)
-            return {'assistant':self.handleNoneIntent()}
+            return {'assistant':self.handleFetchRecipe(output)}
         
 
 # building the Flask app
