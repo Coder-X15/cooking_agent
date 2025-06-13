@@ -39,9 +39,20 @@ class AIAgent:
         self.model = 'gemini-2.0-flash-001'
 
         # specific prompts
-        self.intent_prompt = '''Identify the user intent (either to fetch a recipe, or a "None" intent). If the user intends to get a recipe,
-        print "Fetch the recipe for <name of the dish with every letter in lower-case and seperated by underscores>", otherwise print "None". Note that every
-        dialogue is not an intent to fetch the recipe. Dialogues like exclamations (eg.: "Ah! Those sizzling bagels!") are to be considered as "None" intent. '''
+        self.intent_prompt = '''
+        Identify the user intent (either to fetch a recipe, or a "None" intent, or a "Fallback" intent). 
+        
+        ## Allowed Intents:
+        1. If the user intends to get a recipe for a bakery item or a beverage, print "Fetch the recipe for <name of the dish with every letter in 
+           lower-case and seperated by underscores>"
+        2. For a normal conversation excluding the things in point (3), print "None".
+        3. If the user asks for programming help of any sort or STEM doubt clearance, or the user asks for the recipe of a non-bakery or beverage item, 
+           print "Fallback"
+
+        ## Note:
+        - Note that every dialogue is not an intent to fetch the recipe. Dialogues like exclamations (eg.: "Ah! Those 
+        sizzling bagels!") are to be considered as "None" intent.
+        '''
 
         self.none_prompt = ['''Converse with the user almost like how a normal human user would. Be suggestive when it comes to ideas,
         ask opinions subtly (like "Ain't that so?", "What do you think", etc.). Hide as much of your bot behaviour as you can.''']
@@ -227,6 +238,27 @@ class AIAgent:
 
         return response.text
 
+    def handleDunnoIntent(self):
+        # Handles the unallowed/ fallback intent (coding help and all)
+        response = self.client.models.generate_content(
+                model = self.model,
+                contents = self.system_memory[-1::],
+                config = types.GenerateContentConfig(
+                    system_instruction = ''' Reply to the user that you have not been made to deal with that kind of a query'''
+                )
+            )
+
+        self.system_memory.append(
+            types.Content(
+                role = 'assistant',
+                parts = [
+                    types.Part.from_text(text = response.text)
+                ]
+            )
+        )
+
+        return response.text
+    
     def run(self):
         # run the system
         # flow:
@@ -237,8 +269,11 @@ class AIAgent:
         while True:
             user_input = input("User:")
             intent = self.getIntent(user_input)
+            print(f"Identified intent:{intent.text}")
             if 'None' in intent.text:
                 print(self.handleNoneIntent())
+            elif 'Fallback' in intent.text:
+                print(self.handleDunnoIntent())
             else:
                 # the output comes as a text repr. of a JSON/Python dictionary
                 # we need to convert it first

@@ -14,6 +14,8 @@ class Agent(AIAgent):
         intent = self.getIntent(user_input)
         if 'None' in intent.text:
             return {'assistant':self.handleNoneIntent()}
+        elif 'Fallback' in intent.text:
+            return {'assistant': self.handleDunnoIntent()}
         else:
             # the output comes as a text repr. of a JSON/Python dictionary
             # we need to convert it first
