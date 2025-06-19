@@ -28,6 +28,4 @@ Save it in the `agent` folder of the repo once cloned.
 4. Open a web browser and navigate to `http://localhost:5000/`.
 
 ## TODO:
-1. Need to refine the logic in a better way.
-2. Need to get the model to respond within context.
-
+(Nothing as of now 😄)
